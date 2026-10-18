@@ -1,0 +1,32 @@
+name: Zoom
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [Zoom]
+
+jobs:
+  Zoom:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install requests
+        run: pip install requests
+
+      - name: Run dispatch script
+        env:
+          ZOOM_ACCOUNT_ID:     ${{ secrets.ZOOM_ACCOUNT_ID }}
+          ZOOM_CLIENT_ID:      ${{ secrets.ZOOM_CLIENT_ID }}
+          ZOOM_CLIENT_SECRET:  ${{ secrets.ZOOM_CLIENT_SECRET }}
+          GH_PAT:              ${{ secrets.GH_PAT }}
+          GH_REPO:             ${{ secrets.GH_REPO }}
+          DEFAULT_DESCRIPTION: ${{ secrets.DEFAULT_DESCRIPTION }}
+          DEFAULT_VISIBILITY:  ${{ secrets.DEFAULT_VISIBILITY }}
+        run: python zoom.py
