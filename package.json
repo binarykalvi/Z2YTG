@@ -1,0 +1,11 @@
+{
+  "name": "z2ytg",
+  "version": "1.0.0",
+  "main": "upload.js",
+  "scripts": {
+    "start": "node upload.js"
+  },
+  "dependencies": {
+    "googleapis": "^144.0.0"
+  }
+}
