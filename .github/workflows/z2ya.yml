@@ -1,0 +1,49 @@
+name: Z2YTG
+
+on:
+  repository_dispatch:
+    types: [Z2YTG]
+
+jobs:
+  Z2Y:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install
+        run: npm install
+
+      - name: Prep URL
+        run: |
+          echo "${{ github.event.client_payload.zoom_url }}" > urls.txt
+          cat urls.txt
+
+      - name: Z R DL
+        run: npx --yes zoom-rec-dl@latest
+
+      - name: List downloaded files
+        if: always()
+        run: find . -name "*.mp4" -not -path "./node_modules/*" || echo "NO MP4 FILES"
+
+      - name: Y U
+        if: always()
+        env:
+          YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          VIDEO_TITLE:       ${{ github.event.client_payload.meeting_name }} - ${{ github.event.client_payload.record_date }}
+          VIDEO_DESCRIPTION: ${{ github.event.client_payload.description }}
+          VIDEO_VISIBILITY:  ${{ github.event.client_payload.visibility }}
+          ZOOM_ACCOUNT_ID:    ${{ secrets.ZOOM_ACCOUNT_ID }}
+          ZOOM_CLIENT_ID:     ${{ secrets.ZOOM_CLIENT_ID }}
+          ZOOM_CLIENT_SECRET: ${{ secrets.ZOOM_CLIENT_SECRET }}
+          ZOOM_MEETING_UUID:  ${{ github.event.client_payload.meeting_uuid }}
+        run: node upload.js
