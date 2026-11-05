@@ -11,30 +11,44 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '22'
 
       - name: Install
-        run: npm install
+        run: npm install --no-audit --no-fund
 
-      - name: Prep URL
+      - name: Downloader
         run: |
-          echo "${{ github.event.client_payload.zoom_url }}" > urls.txt
-          cat urls.txt
+          set -eo pipefail
 
-      - name: Z R DL
-        run: npx --yes zoom-rec-dl@latest
+          echo "::group::Clone + install"
+          git clone -q https://github.com/katcinskiy/zoom-downloader.git
+          cd zoom-downloader
+          pip install -q requests 'playwright>=1.64.1'
+          playwright install --only-shell chromium > /dev/null 2>&1
+          echo "::endgroup::"
 
-      - name: List downloaded files
-        if: always()
-        run: find . -name "*.mp4" -not -path "./node_modules/*" || echo "NO MP4 FILES"
+          echo "::group::Download recording"
+          python3 zoom_downloader.py "${{ github.event.client_payload.zoom_url }}" \
+            > /tmp/zoom_dl.log 2>&1 || true
+          sed -E 's#https://[^ ]*\.mp4[^ ]*#<mp4-url-redacted>#g' /tmp/zoom_dl.log
+          echo "::endgroup::"
+
+          if [ ! -f zoom_recording.mp4 ]; then
+            echo "::error::zoom_recording.mp4 was not created."
+            echo "--- Full downloader log ---"
+            cat /tmp/zoom_dl.log
+            exit 1
+          fi
+
+          mv zoom_recording.mp4 "${{ github.workspace }}/"
+          echo "MP4 ready: $(du -h "${{ github.workspace }}/zoom_recording.mp4" | cut -f1)"
 
       - name: Y U
-        if: always()
         env:
           YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
@@ -42,8 +56,4 @@ jobs:
           VIDEO_TITLE:       ${{ github.event.client_payload.meeting_name }} - ${{ github.event.client_payload.record_date }}
           VIDEO_DESCRIPTION: ${{ github.event.client_payload.description }}
           VIDEO_VISIBILITY:  ${{ github.event.client_payload.visibility }}
-          ZOOM_ACCOUNT_ID:    ${{ secrets.ZOOM_ACCOUNT_ID }}
-          ZOOM_CLIENT_ID:     ${{ secrets.ZOOM_CLIENT_ID }}
-          ZOOM_CLIENT_SECRET: ${{ secrets.ZOOM_CLIENT_SECRET }}
-          ZOOM_MEETING_UUID:  ${{ github.event.client_payload.meeting_uuid }}
         run: node upload.js
