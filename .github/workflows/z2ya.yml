@@ -56,4 +56,8 @@ jobs:
           VIDEO_TITLE:       ${{ github.event.client_payload.meeting_name }} - ${{ github.event.client_payload.record_date }}
           VIDEO_DESCRIPTION: ${{ github.event.client_payload.description }}
           VIDEO_VISIBILITY:  ${{ github.event.client_payload.visibility }}
+          ZOOM_ACCOUNT_ID:     ${{ secrets.ZOOM_ACCOUNT_ID }}
+          ZOOM_CLIENT_ID:      ${{ secrets.ZOOM_CLIENT_ID }}
+          ZOOM_CLIENT_SECRET:  ${{ secrets.ZOOM_CLIENT_SECRET }}
+          ZOOM_MEETING_UUID:   ${{ github.event.client_payload.meeting_uuid }}
         run: node upload.js
