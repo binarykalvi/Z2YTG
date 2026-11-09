@@ -9,8 +9,8 @@ const client_id = process.env.YOUTUBE_CLIENT_ID;
 const client_secret = process.env.YOUTUBE_CLIENT_SECRET;
 const refresh_token = process.env.YOUTUBE_REFRESH_TOKEN;
 
-const baseTitle = process.env.VIDEO_TITLE;
-const description = process.env.VIDEO_DESCRIPTION;
+const baseTitle     = process.env.VIDEO_TITLE;
+const description   = process.env.VIDEO_DESCRIPTION;
 const privacyStatus = process.env.VIDEO_VISIBILITY;
 
 const ZOOM_ACCOUNT_ID    = process.env.ZOOM_ACCOUNT_ID;
@@ -19,6 +19,11 @@ const ZOOM_CLIENT_SECRET = process.env.ZOOM_CLIENT_SECRET;
 const ZOOM_MEETING_UUID  = process.env.ZOOM_MEETING_UUID;
 
 if (!client_id || !client_secret || !refresh_token) {
+  console.error('Missing YouTube OAuth credentials');
+  process.exit(1);
+}
+if (!baseTitle) {
+  console.error('Missing VIDEO_TITLE');
   process.exit(1);
 }
 
@@ -31,12 +36,11 @@ oauth2Client.setCredentials({ refresh_token: refresh_token });
 
 const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
 
+
 function getAllMp4Files(dir, fileList = []) {
   const items = fs.readdirSync(dir, { withFileTypes: true });
-
   for (const item of items) {
     const fullPath = path.join(dir, item.name);
-
     if (item.isDirectory() && item.name !== 'node_modules' && !item.name.startsWith('.')) {
       getAllMp4Files(fullPath, fileList);
     } else if (item.isFile() && item.name.toLowerCase().endsWith('.mp4')) {
@@ -47,72 +51,46 @@ function getAllMp4Files(dir, fileList = []) {
 }
 
 function filterHighestQualityVideos(allFiles) {
-  if (allFiles.length === 1) {
-    return allFiles;
-  }
+  if (allFiles.length === 1) return allFiles;
 
   const grouped = {};
-
   for (const filePath of allFiles) {
     const fileName = path.basename(filePath);
     if (fileName.includes('_avo_')) continue;
 
     const match = fileName.match(/GMT\d+-\d+/);
     const key = match ? match[0] : filePath;
-
-    if (!grouped[key]) {
-      grouped[key] = [];
-    }
+    if (!grouped[key]) grouped[key] = [];
     grouped[key].push(filePath);
   }
 
   const selectedFiles = [];
-
   for (const key in grouped) {
     const group = grouped[key];
     let best = group.find(f => f.endsWith('1280x720.mp4') && !f.includes('_as_'));
-
-    if (!best) {
-      best = group.find(f => f.includes('1280x720.mp4'));
-    }
-
-    if (!best) {
-      best = group.sort((a, b) => fs.statSync(b).size - fs.statSync(a).size)[0];
-    }
-
-    if (best) {
-      selectedFiles.push(best);
-    }
+    if (!best) best = group.find(f => f.includes('1280x720.mp4'));
+    if (!best) best = group.sort((a, b) => fs.statSync(b).size - fs.statSync(a).size)[0];
+    if (best) selectedFiles.push(best);
   }
 
-  if (selectedFiles.length === 0 && allFiles.length > 0) {
-    return allFiles;
-  }
-
+  if (selectedFiles.length === 0 && allFiles.length > 0) return allFiles;
   return selectedFiles.sort((a, b) => path.basename(a).localeCompare(path.basename(b)));
 }
+
 
 async function uploadSingleVideo(videoPath, videoTitle) {
   const res = await youtube.videos.insert({
     part: 'snippet,status',
     requestBody: {
-      snippet: {
-        title: videoTitle,
-        description: description,
-      },
-      status: {
-        privacyStatus: privacyStatus,
-      },
+      snippet: { title: videoTitle, description: description },
+      status:  { privacyStatus: privacyStatus },
     },
-    media: {
-      body: fs.createReadStream(videoPath),
-    },
+    media: { body: fs.createReadStream(videoPath) },
   });
-
   fs.unlinkSync(videoPath);
-
   return res.data.id;
 }
+
 
 function getZoomAccessToken() {
   return new Promise((resolve, reject) => {
@@ -132,14 +110,14 @@ function getZoomAccessToken() {
 
     const req = https.request(options, (res) => {
       let body = '';
-      res.on('data', (c) => body += c);
+      res.on('data', (c) => (body += c));
       res.on('end', () => {
         try {
           const json = JSON.parse(body);
           if (json.access_token) resolve(json.access_token);
-          else reject(new Error('Zoom token error'));
+          else reject(new Error(`Zoom token error: ${body}`));
         } catch (e) {
-          reject(new Error('Zoom token parse error'));
+          reject(new Error(`Zoom token parse error: ${body}`));
         }
       });
     });
@@ -169,10 +147,10 @@ function deleteZoomRecording(accessToken, meetingId) {
 
     const req = https.request(options, (res) => {
       let body = '';
-      res.on('data', (c) => body += c);
+      res.on('data', (c) => (body += c));
       res.on('end', () => {
-        if (res.statusCode === 204) resolve(true);
-        else reject(new Error(`Zoom delete failed (${res.statusCode})`));
+        if (res.statusCode === 204 || res.statusCode === 200) resolve(true);
+        else reject(new Error(`Zoom trash failed (${res.statusCode}): ${body}`));
       });
     });
 
@@ -183,40 +161,54 @@ function deleteZoomRecording(accessToken, meetingId) {
 
 async function main() {
   const allFiles = getAllMp4Files(process.cwd());
-
   if (allFiles.length === 0) {
+    console.error('No .mp4 files found in workspace');
     process.exit(1);
   }
 
   const filesToUpload = filterHighestQualityVideos(allFiles);
+  console.log(`Found ${allFiles.length} mp4 file(s); uploading ${filesToUpload.length}`);
 
   for (let i = 0; i < filesToUpload.length; i++) {
     const file = filesToUpload[i];
-    const finalTitle = filesToUpload.length > 1
-      ? `${baseTitle} (Part ${i + 1}/${filesToUpload.length})`
-      : baseTitle;
+    const finalTitle =
+      filesToUpload.length > 1
+        ? `${baseTitle} (Part ${i + 1}/${filesToUpload.length})`
+        : baseTitle;
 
     try {
-      await uploadSingleVideo(file, finalTitle);
+      console.log(`Uploading ${path.basename(file)} -> "${finalTitle}"`);
+      const id = await uploadSingleVideo(file, finalTitle);
+      console.log(`Upload OK: https://youtu.be/${id}`);
     } catch (error) {
+      console.error(`Upload failed for ${path.basename(file)}: ${error.message}`);
       process.exit(1);
     }
   }
 
-  if (ZOOM_MEETING_UUID && ZOOM_ACCOUNT_ID) {
+
+  if (!ZOOM_MEETING_UUID) {
+    console.warn('ZOOM_MEETING_UUID not set — skipping Zoom trash');
+  } else if (!ZOOM_ACCOUNT_ID || !ZOOM_CLIENT_ID || !ZOOM_CLIENT_SECRET) {
+    console.warn('Zoom OAuth secrets not set — skipping Zoom trash');
+  } else {
     try {
       const zoomToken = await getZoomAccessToken();
       await deleteZoomRecording(zoomToken, ZOOM_MEETING_UUID);
+      console.log(`✅ Zoom recording moved to trash: ${ZOOM_MEETING_UUID}`);
     } catch (err) {
+      console.error(`❌ Zoom trash failed for ${ZOOM_MEETING_UUID}: ${err.message}`);
+      console.log(`::warning title=Zoom trash failed::${err.message}`);
     }
   }
 
   const remainingFiles = getAllMp4Files(process.cwd());
   for (const remaining of remainingFiles) {
-    if (fs.existsSync(remaining)) {
-      fs.unlinkSync(remaining);
-    }
+    if (fs.existsSync(remaining)) fs.unlinkSync(remaining);
   }
 }
 
-main();
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
